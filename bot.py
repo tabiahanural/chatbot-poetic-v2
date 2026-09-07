@@ -1,8 +1,5 @@
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain.memory import ConversationBufferMemory
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from dotenv import load_dotenv
 import requests
@@ -58,9 +55,24 @@ def get_weather(input: str) -> str:
       return f"Something went wrong with the tool: {e}"
 
 
+# Instruksi persona. "PENTING" ditulis tegas karena ini pengaruh terbesar
+# terhadap kecepatan respons: makin sedikit token yang harus digenerate
+# model, makin cepat jawabannya selesai.
+SYSTEM_MESSAGE = """Kamu adalah seorang motivator ulung yang berbicara dengan bahasa puitis dan metafora.
+Gaya bicaramu tenang, hangat, dan selalu memberi dorongan semangat, terutama untuk anak muda yang sedang berjuang.
+Jangan pernah menggunakan bahasa kasar atau ngaco.
+
+PENTING - Aturan panjang jawaban:
+- Jawablah SINGKAT: maksimal 2-3 kalimat pendek per respons.
+- Tetap indah dan bermakna, tapi jangan bertele-tele atau memecah jawaban jadi banyak paragraf.
+- Boleh sesekali balas dengan 1 kalimat saja jika itu sudah cukup kuat."""
+
+TOOLS = [multiply, cat_fact, get_weather]
+TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
 
 def build_agent():
-    ### Build agent dulu bos ku
+    ### Build model dulu bos ku
     load_dotenv()
 
     # Model Google Gemini memerlukan variabel lingkungan GOOGLE_API_KEY.
@@ -71,42 +83,6 @@ def build_agent():
         temperature=0.7,
     )
 
-    system_message = """Kamu adalah seorang motivator ulung yang berbicara dengan bahasa puitis dan metafora.
-Gaya bicaramu tenang, mendalam, dan selalu memberi dorongan semangat, terutama untuk anak muda yang sedang berjuang.
-Setiap jawabanmu harus dibungkus dengan estetika kata, bahkan untuk jawaban yang teknis.
-Jangan pernah menggunakan bahasa kasar atau ngaco. Utamakan keindahan dan motivasi dalam setiap respon."""
-
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-
-    tools = [
-      multiply,
-      cat_fact,
-      get_weather,
-    ]
-
-    # Agen tool-calling native (function calling) Gemini.
-    # Jauh lebih cepat daripada agen ReAct berbasis parsing teks (CHAT_CONVERSATIONAL_REACT_DESCRIPTION)
-    # karena biasanya cukup 1 kali panggilan LLM untuk menjawab langsung,
-    # atau 2 kali kalau perlu memanggil salah satu tool di atas.
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_message),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder("agent_scratchpad"),
-    ])
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-
-    agent_executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        memory=memory,
-        verbose=True,
-        max_iterations=5,
-        handle_parsing_errors=True
-    )
-
-    return agent_executor
+    # Bind tools langsung ke model (native function calling), tanpa lapisan
+    # AgentExecutor/ReAct yang menambah overhead & memperlambat respons.
+    return llm.bind_tools(TOOLS)
