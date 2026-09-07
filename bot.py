@@ -1,7 +1,8 @@
-from langchain.agents import initialize_agent, AgentType
+from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain.memory import ConversationBufferMemory
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from dotenv import load_dotenv
 import requests
@@ -86,15 +87,25 @@ Jangan pernah menggunakan bahasa kasar atau ngaco. Utamakan keindahan dan motiva
       get_weather,
     ]
 
-    # This is the correct conversational agent
-    agent_executor = initialize_agent(
-        llm=llm,
+    # Agen tool-calling native (function calling) Gemini.
+    # Jauh lebih cepat daripada agen ReAct berbasis parsing teks (CHAT_CONVERSATIONAL_REACT_DESCRIPTION)
+    # karena biasanya cukup 1 kali panggilan LLM untuk menjawab langsung,
+    # atau 2 kali kalau perlu memanggil salah satu tool di atas.
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_message),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+        MessagesPlaceholder("agent_scratchpad"),
+    ])
+
+    agent = create_tool_calling_agent(llm, tools, prompt)
+
+    agent_executor = AgentExecutor(
+        agent=agent,
         tools=tools,
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
         memory=memory,
-        agent_kwargs={"system_message": system_message},
         verbose=True,
-        max_iterations=10,
+        max_iterations=5,
         handle_parsing_errors=True
     )
 
