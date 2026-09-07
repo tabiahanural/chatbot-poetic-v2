@@ -7,7 +7,7 @@ from bot import build_agent, SYSTEM_MESSAGE, TOOLS_BY_NAME # Mengimpor fungsi bu
 # set_page_config harus menjadi perintah Streamlit pertama yang dipanggil.
 st.set_page_config(
     page_title="Cermin Aksara Senja",
-    page_icon="ð", # Atau ð / ð
+    page_icon="🌙", # Atau 🌅 / 🌙
     layout="centered"
 )
 
@@ -27,7 +27,7 @@ def get_agent():
 
 llm = get_agent()
 
-st.title("ð¯ï¸ Cermin Aksara Senja ð")
+st.title("🕯️ Cermin Aksara Senja 🌅")
 st.subheader("Tempat Hening bagi Jiwa yang Mencari Jawaban")
 st.markdown("---")
 
@@ -43,9 +43,9 @@ if "messages" not in st.session_state:
 for message in st.session_state.messages:
     # Atur ikon berdasarkan peran
     if message["role"] == "user":
-        icon = "ðï¸"
+        icon = "🖋️"
     else:
-        icon = "ð" # Ikon Bot Puitis
+        icon = "📜" # Ikon Bot Puitis
 
     with st.chat_message(message["role"], avatar=icon):
         st.markdown(message["content"])
@@ -104,12 +104,12 @@ if prompt := st.chat_input("Bisikkan apa yang hatimu rasakan..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     # Avatar Pengguna: Ganti 'user' dengan ikon puitis (pena)
-    with st.chat_message("user", avatar="ðï¸"):
+    with st.chat_message("user", avatar="🖋️"):
         st.markdown(prompt)
 
     # Panggil Model dan tampilkan respons secara streaming
     # Avatar Bot: Ikon puitis (gulungan aksara)
-    with st.chat_message("assistant", avatar="ð"):
+    with st.chat_message("assistant", avatar="📜"):
         last_error = None
         full_response = None
 
