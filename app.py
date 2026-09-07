@@ -7,7 +7,7 @@ from bot import build_agent, SYSTEM_MESSAGE, TOOLS_BY_NAME # Mengimpor fungsi bu
 # set_page_config harus menjadi perintah Streamlit pertama yang dipanggil.
 st.set_page_config(
     page_title="Cermin Aksara Senja",
-    page_icon="🌙", # Atau 🌅 / 🌙
+    page_icon="ð", # Atau ð / ð
     layout="centered"
 )
 
@@ -27,7 +27,7 @@ def get_agent():
 
 llm = get_agent()
 
-st.title("🕯️ Cermin Aksara Senja 🌅")
+st.title("ð¯ï¸ Cermin Aksara Senja ð")
 st.subheader("Tempat Hening bagi Jiwa yang Mencari Jawaban")
 st.markdown("---")
 
@@ -43,9 +43,9 @@ if "messages" not in st.session_state:
 for message in st.session_state.messages:
     # Atur ikon berdasarkan peran
     if message["role"] == "user":
-        icon = "🖋️"
+        icon = "ðï¸"
     else:
-        icon = "📜" # Ikon Bot Puitis
+        icon = "ð" # Ikon Bot Puitis
 
     with st.chat_message(message["role"], avatar=icon):
         st.markdown(message["content"])
@@ -90,6 +90,13 @@ def stream_answer(llm, messages):
                 yield chunk.content
 
 
+def resume_stream(first_chunk, rest):
+    """Sambungkan potongan pertama (yang sudah diambil untuk cek konten) dengan sisa stream."""
+    if first_chunk:
+        yield first_chunk
+    yield from rest
+
+
 # --- 4. Memproses Input Pengguna (Puitis) ---
 # Ubah placeholder chat_input menjadi puitis
 if prompt := st.chat_input("Bisikkan apa yang hatimu rasakan..."):
@@ -97,21 +104,29 @@ if prompt := st.chat_input("Bisikkan apa yang hatimu rasakan..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     # Avatar Pengguna: Ganti 'user' dengan ikon puitis (pena)
-    with st.chat_message("user", avatar="🖋️"):
+    with st.chat_message("user", avatar="ðï¸"):
         st.markdown(prompt)
 
     # Panggil Model dan tampilkan respons secara streaming
     # Avatar Bot: Ikon puitis (gulungan aksara)
-    with st.chat_message("assistant", avatar="📜"):
+    with st.chat_message("assistant", avatar="ð"):
         last_error = None
         full_response = None
 
         # Coba beberapa kali karena backend model kadang mengembalikan
-        # error sementara (mis. rate limit atau gangguan jaringan).
+        # error sementara (mis. rate limit atao gangguan jaringan).
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 messages = to_lc_messages(st.session_state.messages)
-                full_response = st.write_stream(stream_answer(llm, messages))
+                gen = stream_answer(llm, messages)
+
+                # Pesan Spinner: Merangkai aksara dari keheningan senja...
+                # Tampil selagi menunggu token pertama, lalu digantikan oleh
+                # teks yang mengalir (streaming) begitu jawaban mulai datang.
+                with st.spinner("Merangkai aksara dari keheningan senja..."):
+                    first_chunk = next(gen, "")
+
+                full_response = st.write_stream(resume_stream(first_chunk, gen))
                 last_error = None
                 break
 
