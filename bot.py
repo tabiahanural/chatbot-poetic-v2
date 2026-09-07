@@ -79,7 +79,7 @@ def build_agent():
     # Dapatkan API key GRATIS (tanpa kartu pembayaran) di https://aistudio.google.com/apikey
     # Simpan sebagai GOOGLE_API_KEY di file .env (lokal) atau Secrets (Streamlit Cloud).
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.5-flash-lite",
         temperature=0.7,
     )
 
