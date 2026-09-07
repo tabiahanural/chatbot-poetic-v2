@@ -1,7 +1,8 @@
 import time
 
 import streamlit as st
-from bot import build_agent # Mengimpor fungsi build_agen
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from bot import build_agent, SYSTEM_MESSAGE, TOOLS_BY_NAME # Mengimpor fungsi build_agen
 
 # set_page_config harus menjadi perintah Streamlit pertama yang dipanggil.
 st.set_page_config(
@@ -14,9 +15,9 @@ st.set_page_config(
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
-# --- 1. Inisialisasi Agen (Hanya Sekali) ---
-# Menggunakan st.cache_resource untuk memastikan agen (termasuk model & memori)
-# dibuat hanya sekali, mempertahankan memori di seluruh sesi.
+# --- 1. Inisialisasi Model (Hanya Sekali) ---
+# Menggunakan st.cache_resource untuk memastikan model (dengan tools yang sudah di-bind)
+# dibuat hanya sekali, dipakai ulang di seluruh sesi.
 @st.cache_resource
 def get_agent():
     # Model Google Gemini memerlukan variabel lingkungan GOOGLE_API_KEY.
@@ -24,7 +25,7 @@ def get_agent():
     # dan berisi API key yang valid, atau sudah diatur sebagai Secret di Streamlit Cloud.
     return build_agent()
 
-agent_executor = get_agent()
+llm = get_agent()
 
 st.title("🕯️ Cermin Aksara Senja 🌅")
 st.subheader("Tempat Hening bagi Jiwa yang Mencari Jawaban")
@@ -49,6 +50,46 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar=icon):
         st.markdown(message["content"])
 
+
+def to_lc_messages(session_messages):
+    """Ubah riwayat chat (list of dict) jadi list message LangChain untuk dikirim ke model."""
+    lc_messages = [SystemMessage(content=SYSTEM_MESSAGE)]
+    for m in session_messages:
+        if m["role"] == "user":
+            lc_messages.append(HumanMessage(content=m["content"]))
+        else:
+            lc_messages.append(AIMessage(content=m["content"]))
+    return lc_messages
+
+
+def stream_answer(llm, messages):
+    """Streaming jawaban token-per-token, dengan satu putaran tool-calling bila diperlukan."""
+    full = None
+    for chunk in llm.stream(messages):
+        full = chunk if full is None else full + chunk
+        if chunk.content:
+            yield chunk.content
+
+    # Jika model minta memanggil salah satu tool (multiply/cat_fact/get_weather),
+    # jalankan tool-nya lalu lanjutkan streaming jawaban akhir yang sudah puitis.
+    if full is not None and getattr(full, "tool_calls", None):
+        messages.append(full)
+        for call in full.tool_calls:
+            tool_fn = TOOLS_BY_NAME.get(call["name"])
+            if tool_fn is not None:
+                try:
+                    result = tool_fn.invoke(call["args"])
+                except Exception as e:
+                    result = f"Something went wrong with the tool: {e}"
+            else:
+                result = f"Tool {call['name']} tidak ditemukan."
+            messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+
+        for chunk in llm.stream(messages):
+            if chunk.content:
+                yield chunk.content
+
+
 # --- 4. Memproses Input Pengguna (Puitis) ---
 # Ubah placeholder chat_input menjadi puitis
 if prompt := st.chat_input("Bisikkan apa yang hatimu rasakan..."):
@@ -59,40 +100,33 @@ if prompt := st.chat_input("Bisikkan apa yang hatimu rasakan..."):
     with st.chat_message("user", avatar="🖋️"):
         st.markdown(prompt)
 
-    # Panggil Agen dan tampilkan respons
+    # Panggil Model dan tampilkan respons secara streaming
     # Avatar Bot: Ikon puitis (gulungan aksara)
     with st.chat_message("assistant", avatar="📜"):
+        last_error = None
+        full_response = None
 
-        # Pesan Spinner: Merangkai aksara dari keheningan senja...
-        with st.spinner("Merangkai aksara dari keheningan senja..."):
-            last_error = None
-            full_response = None
+        # Coba beberapa kali karena backend model kadang mengembalikan
+        # error sementara (mis. rate limit atau gangguan jaringan).
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                messages = to_lc_messages(st.session_state.messages)
+                full_response = st.write_stream(stream_answer(llm, messages))
+                last_error = None
+                break
 
-            # Coba beberapa kali karena backend model kadang mengembalikan
-            # error sementara (mis. rate limit atau gangguan jaringan).
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    # Panggil agen dengan input pengguna
-                    # Note: 'agent_executor.invoke' adalah fungsi teknis, tidak perlu diganti
-                    response = agent_executor.invoke({"input": prompt})
+            except Exception as e:
+                last_error = e
+                # Cetak traceback asli ke log server (terlihat di Streamlit Cloud logs)
+                # supaya mudah didiagnosis, tanpa menampilkannya ke pengguna.
+                print(f"[stream_answer] percobaan {attempt}/{MAX_RETRIES} gagal: {e}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY_SECONDS)
 
-                    # Ambil output teks dari respons agen
-                    full_response = response.get('output', 'Aksara senja tak terangkai sempurna. Ada jeda yang tak terduga.')
-                    last_error = None
-                    break
+        if last_error is not None:
+            # Tangani kesalahan dengan bahasa puitis, setelah semua percobaan gagal
+            full_response = f"Sayang sekali, hening ini terpecah. Ada badai tak terlihat yang mengganggu alunan kata: {last_error}"
+            st.markdown(full_response)
 
-                except Exception as e:
-                    last_error = e
-                    # Cetak traceback asli ke log server (terlihat di Streamlit Cloud logs)
-                    # supaya mudah didiagnosis, tanpa menampilkannya ke pengguna.
-                    print(f"[agent_executor.invoke] percobaan {attempt}/{MAX_RETRIES} gagal: {e}")
-                    if attempt < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY_SECONDS)
-
-            if last_error is not None:
-                # Tangani kesalahan dengan bahasa puitis, setelah semua percobaan gagal
-                full_response = f"Sayang sekali, hening ini terpecah. Ada badai tak terlihat yang mengganggu alunan kata: {last_error}"
-
-        # Tambahkan respons bot ke riwayat
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-        st.markdown(full_response)
+    # Tambahkan respons bot ke riwayat
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
